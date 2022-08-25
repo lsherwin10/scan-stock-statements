@@ -4,7 +4,6 @@ import robin_stocks.robinhood as r
 import pyotp
 import pandas as pd
 import matplotlib.pyplot as plt
-import xlsxwriter as xlw
 
 MONTHLY_DIVS = {"PBA", "STAG", "MAIN"}
 
@@ -29,6 +28,63 @@ def remove_zero_vals(vals_dict):
             new_vals.append(vals_dict[key])
         i += 1
     return new_keys, new_vals
+
+
+def write_holdings(df, writer):
+    df.to_excel(writer, "Holdings")
+    workbook = writer.book
+    worksheet = writer.sheets["Holdings"]
+
+    center_format = workbook.add_format({"align": "center"})
+    percent_format = workbook.add_format({"num_format": "0.0%", "align": "center"})
+    money_format = workbook.add_format({"num_format": "$0.00", "align": "center"})
+
+    worksheet.set_column("A:M", None, center_format)
+    worksheet.set_column("J:M", None, money_format)
+
+    # set individual columns after ranges to prevent overwriting
+    worksheet.set_column("B:B", 26)
+    worksheet.set_column("D:D", None, money_format)
+    worksheet.set_column("E:E", 13, percent_format)
+    worksheet.set_column("F:F", 11.5, money_format)
+    worksheet.set_column("G:G", 12.5, percent_format)
+    worksheet.set_column("H:H", 19.5)
+    worksheet.set_column("I:I", 12)
+    worksheet.set_column("J:J", 22)
+    worksheet.set_column("K:K", 16)
+    worksheet.set_column("L:L", 20)
+    worksheet.set_column("M:M", 22.5)
+
+
+def build_summary(df):
+    summary = dict()
+    summary["Total Invested"] = (df["Equity"] - df["Equity Change"]).sum()
+    summary["Total Value"] = df["Equity"].sum()
+    summary["Total P/L"] = df["Equity Change"].sum()
+    summary["Total ROI"] = summary["Total P/L"] / summary["Total Invested"]
+    summary["Annual Income"] = df["Annual Dividend Income"].sum()
+    result = pd.DataFrame.from_dict(summary, orient="index")
+    result.columns = [""]
+    return result
+
+
+def write_summary(df, writer):
+    df.to_excel(writer, "Summary", header=False)
+    workbook = writer.book
+    worksheet = writer.sheets["Summary"]
+
+    percent_format = workbook.add_format({"num_format": "0.00%"})
+    money_format = workbook.add_format({"num_format": "$0.00"})
+
+    worksheet.set_column("A:A", 12)
+    worksheet.set_column("B:B", None, money_format)
+    worksheet.write("B5", df.loc["Total ROI", :], percent_format)
+
+
+def write_image(img, writer):
+    workbook = writer.book
+    worksheet = workbook.add_worksheet(img[:-4].capitalize())
+    worksheet.insert_image("A1", img, {"x_scale": 1.5, "y_scale": 1.5})
 
 
 #%%
@@ -144,6 +200,27 @@ ax2.pie(
 )
 ax2.set_title("Allocation by Dividend Income")
 
-plt.savefig("charts.png")
+plt.savefig("Diversification.png")
+
+# WRITE TO EXCEL SHEET
+# https://www.codegrepper.com/code-examples/python/pandas+to+excel+append+to+existing+sheet
+# %%
+final_df = trimmed_stocks_df.copy()
+final_df.drop(["Type", "Percentage"], axis=1, inplace=True)
+final_df["Quantity"] = final_df["Quantity"].astype(float)
+final_df["Equity"] = final_df["Equity"].astype(float)
+final_df["Percent Change"] = final_df["Percent Change"].astype(float) / 100
+final_df["Equity Change"] = final_df["Equity Change"].astype(float)
+final_df["Dividend Yield"] = final_df["Dividend Yield"].astype(float) / 100
+
+
+with pd.ExcelWriter(
+    "investments.xlsx",
+    engine="xlsxwriter",
+    engine_kwargs={"options": {"strings_to_numbers": True}},
+) as writer:
+    write_summary(build_summary(final_df), writer)
+    write_holdings(final_df, writer)
+    write_image("Diversification.png", writer)
 
 # %%

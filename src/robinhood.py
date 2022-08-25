@@ -4,6 +4,7 @@ import robin_stocks.robinhood as r
 import pyotp
 import pandas as pd
 import matplotlib.pyplot as plt
+import xlsxwriter as xlw
 
 MONTHLY_DIVS = {"PBA", "STAG", "MAIN"}
 
@@ -15,6 +16,19 @@ def get_dividend_per_period(dividend, freq):
         return dividend / 4
     else:
         return 0
+
+
+def remove_zero_vals(vals_dict):
+    i = 0
+    keys = list(vals_dict.keys())
+    new_keys, new_vals = [], []
+    while i < len(keys):
+        key = keys[i]
+        if vals_dict[key] > 0:
+            new_keys.append(key)
+            new_vals.append(vals_dict[key])
+        i += 1
+    return new_keys, new_vals
 
 
 #%%
@@ -78,6 +92,8 @@ cols.insert(1, "Type")
 trimmed_stocks_df = trimmed_stocks_df[cols]
 # display(trimmed_stocks_df)
 
+
+# GRAPHS
 # %%
 equity_pcts = trimmed_stocks_df["Percentage"].values
 sectors = trimmed_stocks_df["Sector"].values
@@ -107,17 +123,27 @@ equity_by_sector.pop("Miscellaneous")
 div_incomes_by_sector["ETF"] = div_incomes_by_sector["Miscellaneous"]
 div_incomes_by_sector.pop("Miscellaneous")
 
-equity_sector_keys = list(equity_by_sector.keys())
-equity_sector_vals = [equity_by_sector[key] for key in equity_sector_keys]
-div_sector_keys = list(div_incomes_by_sector.keys())
-div_sector_vals = [div_incomes_by_sector[key] for key in div_sector_keys]
+equity_sector_keys, equity_sector_vals = remove_zero_vals(equity_by_sector)
+div_sector_keys, div_sector_vals = remove_zero_vals(div_incomes_by_sector)
 
 #%%
 fig, (ax1, ax2) = plt.subplots(2, 1)
-ax1.pie(equity_sector_vals, labels=equity_sector_keys, textprops={"fontsize": 8})
+ax1.pie(
+    equity_sector_vals,
+    labels=equity_sector_keys,
+    textprops={"fontsize": 8},
+    autopct="%1.1f%%",
+)
 ax1.set_title("Allocation by Equity")
 
-ax2.pie(div_sector_vals, labels=div_sector_keys, textprops={"fontsize": 8})
+ax2.pie(
+    div_sector_vals,
+    labels=div_sector_keys,
+    textprops={"fontsize": 8},
+    autopct="%1.1f%%",
+)
 ax2.set_title("Allocation by Dividend Income")
 
-plt.show()
+plt.savefig("charts.png")
+
+# %%

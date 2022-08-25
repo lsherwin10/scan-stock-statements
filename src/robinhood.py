@@ -1,7 +1,5 @@
 #%%
-import robin_stocks
 import robin_stocks.robinhood as r
-import pyotp
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -88,16 +86,13 @@ def write_image(img, writer):
 
 
 #%%
-# totp = pyotp.TOTP(pyotp.random_base32()).now()
-# print("Current OTP:", totp)
-
 # fill in with own credentials: username, password
+# will need to provide OTP from authenticator app as well
 login = r.login()
 
 my_stocks = r.build_holdings()
 
 #%%
-# print(my_stocks)
 tickers = list(my_stocks.keys())
 fundamentals = r.stocks.get_fundamentals(tickers, "dividend_yield")
 sectors = r.stocks.get_fundamentals(tickers, "sector")
@@ -127,9 +122,7 @@ for ticker, div, sector in zip(tickers, fundamentals, sectors):
     )
 
 # %%
-# print(my_stocks)
 stocks_df = pd.DataFrame.from_dict(stocks_with_info, orient="index")
-# display(stocks_df)
 
 #%%
 trimmed_stocks_df = stocks_df.drop(
@@ -146,7 +139,6 @@ cols.remove("Type")
 cols.insert(0, "Name")
 cols.insert(1, "Type")
 trimmed_stocks_df = trimmed_stocks_df[cols]
-# display(trimmed_stocks_df)
 
 
 # GRAPHS
@@ -222,5 +214,3 @@ with pd.ExcelWriter(
     write_summary(build_summary(final_df), writer)
     write_holdings(final_df, writer)
     write_image("Diversification.png", writer)
-
-# %%

@@ -116,7 +116,7 @@ def generate_graphs(df):
     plt.savefig("Diversification.png")
 
 
-def run(filename):
+def run(filename=None):
     # Begin combination process
     complete_df = robinhood.run()
     cashapp_df = cashapp.run(filename)

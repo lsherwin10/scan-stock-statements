@@ -16,7 +16,7 @@ TYPES = {"VTI": "etp", "VOO": "etp"}
 
 
 def parse_pdf(filename):
-    if not os.path.exists(os.path.abspath(filename)):
+    if filename is None or not os.path.exists(os.path.abspath(filename)):
         print("File " + filename + " not found for CashApp holdings, ignoring...")
         return None
     with pdfplumber.open(os.path.abspath(filename)) as pdf:

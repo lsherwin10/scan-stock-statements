@@ -1,9 +1,18 @@
 #%%
-import robin_stocks.robinhood as r
-import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import pdfplumber
+import robin_stocks.robinhood as r
 
 MONTHLY_DIVS = {"PBA", "STAG", "MAIN"}
+MISSING_SECTORS = {
+    "JNJ": "Health Technology",
+    "CVX": "Energy",
+    "MMM": "Industrial Services",
+    "WBD": "Consumer Services",
+    "VTI": "Miscellaneous",
+}
 
 
 def get_dividend_per_period(dividend, freq):
@@ -76,13 +85,71 @@ def write_summary(df, writer):
 
     worksheet.set_column("A:A", 12)
     worksheet.set_column("B:B", None, money_format)
-    worksheet.write("B5", df.loc["Total ROI", :], percent_format)
+    worksheet.write("B4", df.loc["Total ROI", :], percent_format)
 
 
 def write_image(img, writer):
     workbook = writer.book
     worksheet = workbook.add_worksheet(img[:-4].capitalize())
     worksheet.insert_image("A1", img, {"x_scale": 1.5, "y_scale": 1.5})
+
+
+def compute_percent_equity(df):
+    total_equity = df["Equity"].sum()
+    df.loc[:, "Percentage"] = round(df["Equity"] / total_equity * 100, 2)
+    return df
+
+
+def generate_graphs(df):
+    equity_pcts = df["Percentage"].values
+    sectors = df["Sector"].values
+    equity_by_sector = dict()
+
+    for k, v in zip(sectors, equity_pcts):
+        if k not in equity_by_sector:
+            equity_by_sector[k] = 0
+        equity_by_sector[k] += float(v)
+
+    div_incomes_by_sector = dict()
+    total_income = 0
+
+    for sector in set(sectors):
+        div_incomes_by_sector[sector] = df.loc[
+            df["Sector"] == sector, "Annual Dividend Per Share"
+        ].sum()
+        total_income += div_incomes_by_sector[sector]
+
+    div_incomes_by_sector = {
+        k: v / total_income * 100 for k, v in div_incomes_by_sector.items()
+    }
+
+    equity_by_sector["ETF"] = equity_by_sector["Miscellaneous"]
+    equity_by_sector.pop("Miscellaneous")
+
+    div_incomes_by_sector["ETF"] = div_incomes_by_sector["Miscellaneous"]
+    div_incomes_by_sector.pop("Miscellaneous")
+
+    equity_sector_keys, equity_sector_vals = remove_zero_vals(equity_by_sector)
+    div_sector_keys, div_sector_vals = remove_zero_vals(div_incomes_by_sector)
+
+    fig, (ax1, ax2) = plt.subplots(2, 1)
+    ax1.pie(
+        equity_sector_vals,
+        labels=equity_sector_keys,
+        textprops={"fontsize": 8},
+        autopct="%1.1f%%",
+    )
+    ax1.set_title("Allocation by Equity")
+
+    ax2.pie(
+        div_sector_vals,
+        labels=div_sector_keys,
+        textprops={"fontsize": 8},
+        autopct="%1.1f%%",
+    )
+    ax2.set_title("Allocation by Dividend Income")
+
+    plt.savefig("Diversification.png")
 
 
 #%%
@@ -123,6 +190,7 @@ for ticker, div, sector in zip(tickers, fundamentals, sectors):
 
 # %%
 stocks_df = pd.DataFrame.from_dict(stocks_with_info, orient="index")
+stocks_df.index.rename("Symbol", inplace=True)
 
 #%%
 trimmed_stocks_df = stocks_df.drop(
@@ -139,65 +207,187 @@ cols.remove("Type")
 cols.insert(0, "Name")
 cols.insert(1, "Type")
 trimmed_stocks_df = trimmed_stocks_df[cols]
+trimmed_stocks_df.loc["CCL", "Equity Change"] = 0.0
 
+# CashApp to PDF
+#%%
+with pdfplumber.open("../cashapp.pdf") as pdf:
+    page = pdf.pages[6]
+    text = page.extract_text()
 
-# GRAPHS
-# %%
-equity_pcts = trimmed_stocks_df["Percentage"].values
-sectors = trimmed_stocks_df["Sector"].values
-equity_by_sector = dict()
+holdings = []
+columns = None
+appending = False
+for line in text.split("\n"):
+    if not appending and line != "HOLDINGS":
+        continue
+    elif appending and line == "ACTIVITY":
+        break
+    elif not appending and line == "HOLDINGS":
+        appending = True
+        continue
+    elif appending and line == "Equity":
+        continue
 
-for k, v in zip(sectors, equity_pcts):
-    if k not in equity_by_sector:
-        equity_by_sector[k] = 0
-    equity_by_sector[k] += float(v)
+    # only reach this block if appending is True and haven't hit continue,
+    #   which means we are in the body of the table
+    if columns is None:
+        columns = line.split()[1:]
+        i = 2
+        while i < len(columns) - 1:
+            spacer = " "
+            if i == 10:
+                spacer = ""
+            columns[i] = columns[i] + spacer + columns[i + 1]
+            columns.pop(i + 1)
+            i += 1
+        holdings.append(columns)
+    else:
+        vals = line.split()
+        holdings.append(vals[len(vals) - 8 :])
+        # print(vals)
 
-div_incomes_by_sector = dict()
-total_income = 0
+cashapp = pd.DataFrame(holdings[1:], columns=holdings[0])
+cashapp.set_index("Symbol", drop=True, inplace=True)
+display(cashapp)
 
-for sector in set(sectors):
-    div_incomes_by_sector[sector] = trimmed_stocks_df.loc[
-        trimmed_stocks_df["Sector"] == sector, "Annual Dividend Per Share"
-    ].sum()
-    total_income += div_incomes_by_sector[sector]
+div_yields = {"CVX": 3.47, "JNJ": 2.67, "MMM": 4.62, "T": 7.02}
+types = {"VTI": "etp", "VOO": "etp"}
 
-div_incomes_by_sector = {
-    k: v / total_income * 100 for k, v in div_incomes_by_sector.items()
-}
+df = cashapp.drop(["Unit Cost", "Total Cost", "A/C Type"], axis=1)
 
-equity_by_sector["ETF"] = equity_by_sector["Miscellaneous"]
-equity_by_sector.pop("Miscellaneous")
+df_cols = df.columns.tolist()
+df_cols[2] = "Equity"
+df_cols[3] = "Equity Change"
+df.columns = df_cols
 
-div_incomes_by_sector["ETF"] = div_incomes_by_sector["Miscellaneous"]
-div_incomes_by_sector.pop("Miscellaneous")
+df["Quantity"] = df["Quantity"].astype(float)
+df["Equity"] = df["Equity"].astype(float)
+df.loc[:, "Type"] = df.apply(
+    lambda row: "stock" if row.name not in types else types[row.name], axis=1
+)
+df.loc[:, "Dividend Yield"] = df.apply(
+    lambda row: 0 if row.name not in div_yields else div_yields[row.name], axis=1
+)
+df.loc[:, "Dividend Freq"] = df.apply(
+    lambda row: "N/A" if row["Dividend Yield"] == 0 else "Quarterly", axis=1
+)
+df.loc[:, "Equity Change"] = df.apply(
+    lambda row: float("-" + row["Equity Change"][1:-1])
+    if row["Equity Change"][0] == "("
+    else float(row["Equity Change"]),
+    axis=1,
+)
 
-equity_sector_keys, equity_sector_vals = remove_zero_vals(equity_by_sector)
-div_sector_keys, div_sector_vals = remove_zero_vals(div_incomes_by_sector)
+df.loc[:, "Annual Dividend Per Share"] = df.apply(
+    lambda row: round(float(row["Market Price"]) * row["Dividend Yield"] / 100, 2),
+    axis=1,
+)
+df.loc[:, "Dividend Per Period"] = df.apply(
+    lambda row: get_dividend_per_period(
+        row["Annual Dividend Per Share"], row["Dividend Freq"]
+    ),
+    axis=1,
+)
+df.loc[:, "Annual Dividend Income"] = (
+    df.loc[:, "Annual Dividend Per Share"] * df.loc[:, "Quantity"]
+)
+df.loc[:, "Dividend Income Per Period"] = df.apply(
+    lambda row: get_dividend_per_period(
+        row["Annual Dividend Income"], row["Dividend Freq"]
+    ),
+    axis=1,
+)
+df.loc[:, "Sector"] = df.apply(
+    lambda row: MISSING_SECTORS[row.name] if row.name in MISSING_SECTORS else "N/A",
+    axis=1,
+)
+df.drop("Market Price", axis=1, inplace=True)
 
 #%%
-fig, (ax1, ax2) = plt.subplots(2, 1)
-ax1.pie(
-    equity_sector_vals,
-    labels=equity_sector_keys,
-    textprops={"fontsize": 8},
-    autopct="%1.1f%%",
+# Combining Robinhood and CashApp
+complete_df = trimmed_stocks_df.copy()
+complete_df = complete_df.astype(
+    {
+        "Quantity": float,
+        "Equity": float,
+        "Equity Change": float,
+        "Percent Change": float,
+        "Percentage": float,
+        "Dividend Yield": float,
+    }
 )
-ax1.set_title("Allocation by Equity")
 
-ax2.pie(
-    div_sector_vals,
-    labels=div_sector_keys,
-    textprops={"fontsize": 8},
-    autopct="%1.1f%%",
+missing_cols = list(set(complete_df.columns) - set(df.columns))
+missing_symbols = list(set(df.index) - set(complete_df.index))
+df.loc[:, missing_cols] = np.NaN
+display(complete_df)
+
+complete_df.loc[
+    :,
+    [
+        "Quantity",
+        "Equity",
+        "Equity Change",
+        "Annual Dividend Per Share",
+        "Dividend Per Period",
+        "Annual Dividend Income",
+        "Dividend Income Per Period",
+    ],
+] = complete_df.apply(
+    lambda row: row[
+        [
+            "Quantity",
+            "Equity",
+            "Equity Change",
+            "Annual Dividend Per Share",
+            "Dividend Per Period",
+            "Annual Dividend Income",
+            "Dividend Income Per Period",
+        ]
+    ]
+    + df.loc[
+        row.name,
+        [
+            "Quantity",
+            "Equity",
+            "Equity Change",
+            "Annual Dividend Per Share",
+            "Dividend Per Period",
+            "Annual Dividend Income",
+            "Dividend Income Per Period",
+        ],
+    ]
+    if row.name in df.index
+    else row[
+        [
+            "Quantity",
+            "Equity",
+            "Equity Change",
+            "Annual Dividend Per Share",
+            "Dividend Per Period",
+            "Annual Dividend Income",
+            "Dividend Income Per Period",
+        ]
+    ],
+    axis=1,
 )
-ax2.set_title("Allocation by Dividend Income")
+complete_df = pd.concat((complete_df, df.loc[missing_symbols, :]))
+complete_df = compute_percent_equity(complete_df)
+complete_df.loc[:, "Percent Change"] = round(
+    complete_df["Equity Change"]
+    / (complete_df["Equity"] - complete_df["Equity Change"])
+    * 100,
+    2,
+)
+display(complete_df)
 
-plt.savefig("Diversification.png")
+generate_graphs(complete_df)
 
 # WRITE TO EXCEL SHEET
 # https://www.codegrepper.com/code-examples/python/pandas+to+excel+append+to+existing+sheet
 # %%
-final_df = trimmed_stocks_df.copy()
+final_df = complete_df.copy()
 final_df.drop(["Type", "Percentage"], axis=1, inplace=True)
 final_df["Quantity"] = final_df["Quantity"].astype(float)
 final_df["Equity"] = final_df["Equity"].astype(float)
@@ -207,7 +397,7 @@ final_df["Dividend Yield"] = final_df["Dividend Yield"].astype(float) / 100
 
 
 with pd.ExcelWriter(
-    "investments.xlsx",
+    "Investments.xlsx",
     engine="xlsxwriter",
     engine_kwargs={"options": {"strings_to_numbers": True}},
 ) as writer:

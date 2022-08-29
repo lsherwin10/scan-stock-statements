@@ -16,6 +16,9 @@ TYPES = {"VTI": "etp", "VOO": "etp"}
 
 
 def parse_pdf(filename):
+    if not os.path.exists(os.path.abspath(filename)):
+        print("File " + filename + " not found for CashApp holdings, ignoring...")
+        return None
     with pdfplumber.open(os.path.abspath(filename)) as pdf:
         page = pdf.pages[6]
         text = page.extract_text()
@@ -113,6 +116,9 @@ def format_df(df):
 
 def run(filename):
     df = parse_pdf(filename)
-    df = format_df(df)
 
-    return df
+    # if df is None, that means the file does not exist and can be ignored
+    if df is None:
+        return None
+
+    return format_df(df)

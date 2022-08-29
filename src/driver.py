@@ -116,101 +116,106 @@ def generate_graphs(df):
     plt.savefig("Diversification.png")
 
 
-# Begin combination process
-complete_df = robinhood.run()
-cashapp_df = cashapp.run("cashapp.pdf")
+def run(filename):
+    # Begin combination process
+    complete_df = robinhood.run()
+    cashapp_df = cashapp.run(filename)
 
-complete_df = complete_df.astype(
-    {
-        "Quantity": float,
-        "Equity": float,
-        "Equity Change": float,
-        "Percent Change": float,
-        "Percentage": float,
-        "Dividend Yield": float,
-    }
-)
+    complete_df = complete_df.astype(
+        {
+            "Quantity": float,
+            "Equity": float,
+            "Equity Change": float,
+            "Percent Change": float,
+            "Percentage": float,
+            "Dividend Yield": float,
+        }
+    )
 
-missing_cols = list(set(complete_df.columns) - set(cashapp_df.columns))
-missing_symbols = list(set(cashapp_df.index) - set(complete_df.index))
-cashapp_df.loc[:, missing_cols] = np.NaN
+    if cashapp_df is not None:
+        missing_cols = list(set(complete_df.columns) - set(cashapp_df.columns))
+        missing_symbols = list(set(cashapp_df.index) - set(complete_df.index))
+        cashapp_df.loc[:, missing_cols] = np.NaN
 
-complete_df.loc[
-    :,
-    [
-        "Quantity",
-        "Equity",
-        "Equity Change",
-        "Annual Dividend Per Share",
-        "Dividend Per Period",
-        "Annual Dividend Income",
-        "Dividend Income Per Period",
-    ],
-] = complete_df.apply(
-    lambda row: row[
-        [
-            "Quantity",
-            "Equity",
-            "Equity Change",
-            "Annual Dividend Per Share",
-            "Dividend Per Period",
-            "Annual Dividend Income",
-            "Dividend Income Per Period",
-        ]
-    ]
-    + cashapp_df.loc[
-        row.name,
-        [
-            "Quantity",
-            "Equity",
-            "Equity Change",
-            "Annual Dividend Per Share",
-            "Dividend Per Period",
-            "Annual Dividend Income",
-            "Dividend Income Per Period",
-        ],
-    ]
-    if row.name in cashapp_df.index
-    else row[
-        [
-            "Quantity",
-            "Equity",
-            "Equity Change",
-            "Annual Dividend Per Share",
-            "Dividend Per Period",
-            "Annual Dividend Income",
-            "Dividend Income Per Period",
-        ]
-    ],
-    axis=1,
-)
-complete_df = pd.concat((complete_df, cashapp_df.loc[missing_symbols, :]))
-complete_df = util.compute_percent_equity(complete_df)
-complete_df.loc[:, "Percent Change"] = round(
-    complete_df["Equity Change"]
-    / (complete_df["Equity"] - complete_df["Equity Change"])
-    * 100,
-    2,
-)
+        complete_df.loc[
+            :,
+            [
+                "Quantity",
+                "Equity",
+                "Equity Change",
+                "Annual Dividend Per Share",
+                "Dividend Per Period",
+                "Annual Dividend Income",
+                "Dividend Income Per Period",
+            ],
+        ] = complete_df.apply(
+            lambda row: row[
+                [
+                    "Quantity",
+                    "Equity",
+                    "Equity Change",
+                    "Annual Dividend Per Share",
+                    "Dividend Per Period",
+                    "Annual Dividend Income",
+                    "Dividend Income Per Period",
+                ]
+            ]
+            + cashapp_df.loc[
+                row.name,
+                [
+                    "Quantity",
+                    "Equity",
+                    "Equity Change",
+                    "Annual Dividend Per Share",
+                    "Dividend Per Period",
+                    "Annual Dividend Income",
+                    "Dividend Income Per Period",
+                ],
+            ]
+            if row.name in cashapp_df.index
+            else row[
+                [
+                    "Quantity",
+                    "Equity",
+                    "Equity Change",
+                    "Annual Dividend Per Share",
+                    "Dividend Per Period",
+                    "Annual Dividend Income",
+                    "Dividend Income Per Period",
+                ]
+            ],
+            axis=1,
+        )
+        complete_df = pd.concat((complete_df, cashapp_df.loc[missing_symbols, :]))
+        complete_df = util.compute_percent_equity(complete_df)
+        complete_df.loc[:, "Percent Change"] = round(
+            complete_df["Equity Change"]
+            / (complete_df["Equity"] - complete_df["Equity Change"])
+            * 100,
+            2,
+        )
 
-generate_graphs(complete_df)
+    generate_graphs(complete_df)
 
-# WRITE TO EXCEL SHEET
-# https://www.codegrepper.com/code-examples/python/pandas+to+excel+append+to+existing+sheet
-final_df = complete_df.copy()
-final_df.drop(["Type", "Percentage"], axis=1, inplace=True)
-final_df["Quantity"] = final_df["Quantity"].astype(float)
-final_df["Equity"] = final_df["Equity"].astype(float)
-final_df["Percent Change"] = final_df["Percent Change"].astype(float) / 100
-final_df["Equity Change"] = final_df["Equity Change"].astype(float)
-final_df["Dividend Yield"] = final_df["Dividend Yield"].astype(float) / 100
+    # WRITE TO EXCEL SHEET
+    # https://www.codegrepper.com/code-examples/python/pandas+to+excel+append+to+existing+sheet
+    final_df = complete_df.copy()
+    final_df.drop(["Type", "Percentage"], axis=1, inplace=True)
+    final_df["Quantity"] = final_df["Quantity"].astype(float)
+    final_df["Equity"] = final_df["Equity"].astype(float)
+    final_df["Percent Change"] = final_df["Percent Change"].astype(float) / 100
+    final_df["Equity Change"] = final_df["Equity Change"].astype(float)
+    final_df["Dividend Yield"] = final_df["Dividend Yield"].astype(float) / 100
+
+    with pd.ExcelWriter(
+        "Investments.xlsx",
+        engine="xlsxwriter",
+        engine_kwargs={"options": {"strings_to_numbers": True}},
+    ) as writer:
+        write_summary(build_summary(final_df), writer)
+        write_holdings(final_df, writer)
+        write_image("Diversification.png", writer)
 
 
-with pd.ExcelWriter(
-    "Investments.xlsx",
-    engine="xlsxwriter",
-    engine_kwargs={"options": {"strings_to_numbers": True}},
-) as writer:
-    write_summary(build_summary(final_df), writer)
-    write_holdings(final_df, writer)
-    write_image("Diversification.png", writer)
+if __name__ == "__main__":
+    run("cashapp.pdf")

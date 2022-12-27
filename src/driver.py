@@ -119,7 +119,9 @@ def generate_graphs(df):
 def run(filename=None):
     # Begin combination process
     complete_df = robinhood.run()
+    print("Robinhood Data Scanned...")
     cashapp_df = cashapp.run(filename)
+    print("CashApp Data Scanned...")
 
     complete_df = complete_df.astype(
         {
@@ -216,6 +218,9 @@ def run(filename=None):
         write_holdings(final_df, writer)
         write_image("Diversification.png", writer)
 
+    print("Excel Sheet Generated...")
+
 
 if __name__ == "__main__":
     run("cashapp.pdf")
+    print("Holdings Retrieval Completed!")

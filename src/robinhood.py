@@ -6,6 +6,7 @@ MONTHLY_DIVS = {"PBA", "STAG", "MAIN"}
 
 
 def get_holdings():
+    print("NOTE: Robinhood may ask for login information. If it prompts you for a username, please enter your Robinhood email address")
     r.login()
     return r.build_holdings()
 
